@@ -20,7 +20,7 @@ A superhuman chess engine written in Java.
 
 ## Overview
 
-Calvin is a UCI-compatible chess engine written in Java. 
+Calvin is a UCI-compatible chess engine written in Java. At the time of writing, it is the strongest Java chess engine in the world. 
 
 It features an alpha-beta search algorithm paired with a neural-network-based evaluation function. 
 
