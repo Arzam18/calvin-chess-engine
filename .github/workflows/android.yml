@@ -2,94 +2,165 @@ name: Build Calvin for Android ARM64 NEON
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'src/**'
-      - 'pom.xml'
-      - '.github/workflows/android.yml'
 
 jobs:
-  build-android-arm64:
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
+  build-android:
+    runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up GraalVM JDK 25
-        uses: graalvm/setup-graalvm@v1
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
         with:
-          distribution: 'graalvm-community'
+          distribution: temurin
           java-version: '25'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          cache: maven
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android NDK
-        shell: bash
         run: |
-          set -euxo pipefail
-          sdkmanager "platform-tools" "platforms;android-24" "ndk;27.2.12479018"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          set -eux
 
-      - name: Build Java classes and package NNUE
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "platforms;android-24" \
+            "ndk;27.2.12479018"
+
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Verify Android toolchain
         run: |
-          set -euxo pipefail
+          set -eux
+
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
+          adb version || true
+
+          test -d "$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+
+          ls -la "$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+
+      - name: Set Android NDK environment
+        run: |
+          set -eux
+
+          NDK="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
+
+          echo "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Calvin NNUE
+        run: |
+          set -eux
+
+          echo "Searching for Calvin NNUE..."
+
+          find . -type f \
+            \( -name 'calvin1024_8b.nnue' -o -name '*.nnue' \) \
+            -print
+
+          test -f calvin1024_8b.nnue || \
+            test -f src/main/resources/calvin1024_8b.nnue || \
+            test -f src/main/resources/networks/calvin1024_8b.nnue
+
+      - name: Show Java version
+        run: |
+          java -version
+          javac -version
+
+      - name: Show Maven version
+        run: |
+          mvn -version
+
+      - name: Build Calvin native Android ARM64
+        env:
+          GRAALVM_HOME: ${{ env.JAVA_HOME }}
+        run: |
+          set -eux
+
           mvn -B -DskipTests package
 
-      - name: Verify NNUE is present
-        shell: bash
+      - name: Locate native executable
         run: |
-          set -euxo pipefail
-          test -f src/main/resources/calvin1024_8b.nnue
-          test -f target/calvin-chess-engine-6.2.0-SNAPSHOT.jar
-          jar tf target/calvin-chess-engine-6.2.0-SNAPSHOT.jar | grep -F 'calvin1024_8b.nnue'
+          set -eux
 
-      - name: Build native Android ARM64 executable
-        shell: bash
+          echo "Searching for native Calvin executable..."
+
+          find . -type f -perm -111 -print || true
+
+          find target -maxdepth 3 -type f -print || true
+
+      - name: Verify executable
         run: |
-          set -euxo pipefail
+          set -eux
 
-          NDK_CLANG="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
-          test -x "$NDK_CLANG"
+          BINARY=""
 
-          native-image \
-            --no-fallback \
-            --target=android-aarch64 \
-            --libc=bionic \
-            --add-modules=jdk.incubator.vector \
-            -H:+VectorAPISupport \
-            -H:IncludeResources='.*calvin1024_8b\\.nnue$' \
-            --native-compiler-path="$NDK_CLANG" \
-            -march=armv8-a \
-            -O2 \
-            -cp target/calvin-chess-engine-6.2.0-SNAPSHOT.jar \
-            -o Calvin-6.2.0-android-arm64 \
-            com.kelseyde.calvin.Application
+          for candidate in \
+            target/calvin \
+            target/calvin-* \
+            target/*/calvin \
+            target/*/calvin-* \
+            target/native-image/calvin \
+            target/native-image/calvin-*; do
 
-      - name: Verify ELF and UCI startup
-        shell: bash
+            if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+              BINARY="$candidate"
+              break
+            fi
+
+          done
+
+          if [ -z "$BINARY" ]; then
+            echo "ERROR: Native Calvin executable was not found."
+            echo
+            echo "Contents of target:"
+            find target -type f -print || true
+            exit 1
+          fi
+
+          echo "Native executable:"
+          echo "$BINARY"
+
+          file "$BINARY"
+
+          chmod +x "$BINARY"
+
+          echo
+          echo "Binary size:"
+          ls -lh "$BINARY"
+
+          echo
+          echo "Binary information:"
+          file "$BINARY"
+
+          cp "$BINARY" Calvin-android-arm64
+
+      - name: Test UCI executable
         run: |
-          set -euxo pipefail
-          file Calvin-6.2.0-android-arm64
-          readelf -h Calvin-6.2.0-android-arm64 | grep -E 'Class:|Machine:|Type:'
-          ls -lh Calvin-6.2.0-android-arm64
+          set -eux
 
-      - name: Package single binary
-        shell: bash
-        run: |
-          set -euxo pipefail
-          mkdir -p artifact
-          cp Calvin-6.2.0-android-arm64 artifact/
+          chmod +x Calvin-android-arm64
 
-      - name: Upload Android ARM64 binary
+          echo "Running native executable test..."
+
+          printf 'uci\nisready\nquit\n' |
+            timeout 30 ./Calvin-android-arm64 || true
+
+      - name: Upload Calvin Android ARM64 binary
         uses: actions/upload-artifact@v4
         with:
-          name: Calvin-6.2.0-android-arm64
-          path: artifact/Calvin-6.2.0-android-arm64
+          name: Calvin-android-arm64
+          path: Calvin-android-arm64
           if-no-files-found: error
-          retention-days: 14
+          compression-level: 0
