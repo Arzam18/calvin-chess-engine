@@ -16,10 +16,8 @@
 
     <properties>
         <java.version>17</java.version>
-
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-
         <native.maven.plugin.version>1.1.14</native.maven.plugin.version>
     </properties>
 
@@ -47,6 +45,7 @@
 
         <plugins>
 
+            <!-- Compile Calvin as Java 17 bytecode -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -62,6 +61,7 @@
                 </configuration>
             </plugin>
 
+            <!-- Normal Calvin JAR -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -78,6 +78,7 @@
                 </configuration>
             </plugin>
 
+            <!-- Preserve NNUE files without filtering -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-resources-plugin</artifactId>
@@ -90,6 +91,7 @@
                 </configuration>
             </plugin>
 
+            <!-- JUnit tests using the Vector API -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -103,8 +105,11 @@
             </plugin>
 
         </plugins>
-
     </build>
+
+    <!-- ============================================================ -->
+    <!-- GraalVM Native Image / Android ARM64                         -->
+    <!-- ============================================================ -->
 
     <profiles>
 
@@ -112,6 +117,7 @@
             <id>native</id>
 
             <build>
+
                 <plugins>
 
                     <plugin>
@@ -133,21 +139,46 @@
 
                             <buildArgs>
 
+                                <!-- Do not produce a fallback JVM image -->
                                 <buildArg>--no-fallback</buildArg>
 
-                                <buildArg>--target=android-aarch64</buildArg>
+                                <!-- Android AArch64 target -->
+                                <buildArg>
+                                    --target=android-aarch64
+                                </buildArg>
 
-                                <buildArg>--libc=bionic</buildArg>
+                                <!-- Android Bionic libc -->
+                                <buildArg>
+                                    --libc=bionic
+                                </buildArg>
 
-                                <buildArg>--enable-url-protocols=http</buildArg>
+                                <!-- Existing Calvin HTTP support -->
+                                <buildArg>
+                                    --enable-url-protocols=http
+                                </buildArg>
 
-                                <buildArg>--initialize-at-build-time</buildArg>
+                                <!-- Initialize supported classes during build -->
+                                <buildArg>
+                                    --initialize-at-build-time
+                                </buildArg>
 
+                                <!-- Native Image optimization -->
                                 <buildArg>-O2</buildArg>
 
-                                <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+                                <!-- Better Native Image diagnostics -->
+                                <buildArg>
+                                    -H:+ReportExceptionStackTraces
+                                </buildArg>
 
-                                <buildArg>--add-modules=jdk.incubator.vector</buildArg>
+                                <!-- Explicit Graal Vector API support -->
+                                <buildArg>
+                                    -H:+VectorAPISupport
+                                </buildArg>
+
+                                <!-- Calvin uses Java Vector API -->
+                                <buildArg>
+                                    --add-modules=jdk.incubator.vector
+                                </buildArg>
 
                             </buildArgs>
 
@@ -170,6 +201,7 @@
                     </plugin>
 
                 </plugins>
+
             </build>
 
         </profile>
