@@ -16,8 +16,11 @@
 
     <properties>
         <java.version>17</java.version>
+
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <native.maven.plugin.version>1.1.14</native.maven.plugin.version>
     </properties>
 
     <dependencies>
@@ -44,8 +47,6 @@
 
         <plugins>
 
-            <!-- Compile Calvin using the JDK supplied by GitHub Actions.
-                 Java 17 bytecode compatibility is retained. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -61,7 +62,6 @@
                 </configuration>
             </plugin>
 
-            <!-- Normal Java JAR support -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
@@ -78,7 +78,6 @@
                 </configuration>
             </plugin>
 
-            <!-- Preserve NNUE files exactly -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-resources-plugin</artifactId>
@@ -91,7 +90,6 @@
                 </configuration>
             </plugin>
 
-            <!-- Tests -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -107,5 +105,75 @@
         </plugins>
 
     </build>
+
+    <profiles>
+
+        <profile>
+            <id>native</id>
+
+            <build>
+                <plugins>
+
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <version>${native.maven.plugin.version}</version>
+
+                        <extensions>true</extensions>
+
+                        <configuration>
+
+                            <mainClass>
+                                com.kelseyde.calvin.Application
+                            </mainClass>
+
+                            <imageName>
+                                Calvin-android-arm64
+                            </imageName>
+
+                            <buildArgs>
+
+                                <buildArg>--no-fallback</buildArg>
+
+                                <buildArg>--target=android-aarch64</buildArg>
+
+                                <buildArg>--libc=bionic</buildArg>
+
+                                <buildArg>--enable-url-protocols=http</buildArg>
+
+                                <buildArg>--initialize-at-build-time</buildArg>
+
+                                <buildArg>-O2</buildArg>
+
+                                <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+
+                                <buildArg>--add-modules=jdk.incubator.vector</buildArg>
+
+                            </buildArgs>
+
+                        </configuration>
+
+                        <executions>
+
+                            <execution>
+                                <id>build-native</id>
+
+                                <phase>package</phase>
+
+                                <goals>
+                                    <goal>compile-no-fork</goal>
+                                </goals>
+                            </execution>
+
+                        </executions>
+
+                    </plugin>
+
+                </plugins>
+            </build>
+
+        </profile>
+
+    </profiles>
 
 </project>
