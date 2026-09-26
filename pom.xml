@@ -90,6 +90,8 @@
                     </toolchains>
                 </configuration>
             </plugin>
+            <!-- Native Image / Android builds use GraalVM directly from the CI workflow.
+                 Keeping this project Maven-compatible means the normal Java build remains unchanged. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
