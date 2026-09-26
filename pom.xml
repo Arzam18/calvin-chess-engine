@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://www.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.kelseyde</groupId>
     <artifactId>calvin-chess-engine</artifactId>
     <version>6.2.0-SNAPSHOT</version>
     <packaging>jar</packaging>
-    <name>calvin-chess-engine</name>
 
+    <name>calvin-chess-engine</name>
     <description>A chess engine written in Java.</description>
 
     <properties>
@@ -18,15 +21,18 @@
     </properties>
 
     <dependencies>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
             <version>5.11.0</version>
             <scope>test</scope>
         </dependency>
+
     </dependencies>
 
     <build>
+
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
@@ -35,74 +41,71 @@
                 </includes>
             </resource>
         </resources>
+
         <plugins>
+
+            <!-- Compile Calvin using the JDK supplied by GitHub Actions.
+                 Java 17 bytecode compatibility is retained. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
+
                 <configuration>
                     <release>${java.version}</release>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+
                     <compilerArgs>
                         <arg>--add-modules</arg>
                         <arg>jdk.incubator.vector</arg>
                     </compilerArgs>
                 </configuration>
             </plugin>
+
+            <!-- Normal Java JAR support -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.4.2</version>
+
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>com.kelseyde.calvin.Application</mainClass>
+                            <mainClass>
+                                com.kelseyde.calvin.Application
+                            </mainClass>
                         </manifest>
                     </archive>
                 </configuration>
             </plugin>
+
+            <!-- Preserve NNUE files exactly -->
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-resources-plugin</artifactId>
                 <version>3.3.1</version>
+
                 <configuration>
                     <nonFilteredFileExtensions>
                         <nonFilteredFileExtension>nnue</nonFilteredFileExtension>
                     </nonFilteredFileExtensions>
                 </configuration>
             </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-toolchains-plugin</artifactId>
-                <version>3.2.0</version>
-                <executions>
-                    <execution>
-                        <goals>
-                            <goal>toolchain</goal>
-                        </goals>
-                    </execution>
-                </executions>
-                <configuration>
-                    <toolchains>
-                        <jdk>
-                            <version>${java.version}</version>
-                        </jdk>
-                    </toolchains>
-                </configuration>
-            </plugin>
-            <!-- Native Image / Android builds use GraalVM directly from the CI workflow.
-                 Keeping this project Maven-compatible means the normal Java build remains unchanged. -->
+
+            <!-- Tests -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.3.1</version>
+
                 <configuration>
-                    <includes>
-                        <include>**/*Test.java</include>
-                    </includes>
-                    <argLine>--add-modules jdk.incubator.vector</argLine>
+                    <argLine>
+                        --add-modules jdk.incubator.vector
+                    </argLine>
                 </configuration>
             </plugin>
+
         </plugins>
+
     </build>
+
 </project>
