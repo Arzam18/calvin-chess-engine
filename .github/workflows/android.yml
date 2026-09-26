@@ -11,13 +11,13 @@ jobs:
     steps:
 
       # ------------------------------------------------------------
-      # Checkout
+      # Checkout source
       # ------------------------------------------------------------
       - name: Checkout source
         uses: actions/checkout@v4
 
       # ------------------------------------------------------------
-      # GraalVM
+      # GraalVM Community JDK 25
       # ------------------------------------------------------------
       - name: Set up GraalVM Community JDK 25
         uses: graalvm/setup-graalvm@v1
@@ -35,7 +35,7 @@ jobs:
           native-image --version
 
       # ------------------------------------------------------------
-      # Android SDK / NDK
+      # Android SDK
       # ------------------------------------------------------------
       - name: Set up Android SDK
         run: |
@@ -99,7 +99,7 @@ jobs:
           ls -lh src/main/resources/calvin1024_8b.nnue
 
       # ------------------------------------------------------------
-      # Build
+      # Build Native Image
       # ------------------------------------------------------------
       - name: Build Calvin native Android ARM64
         id: build-native
@@ -107,13 +107,17 @@ jobs:
         run: |
           set +e
 
-          echo "=================================================="
-          echo " CALVIN NATIVE ANDROID ARM64 BUILD"
-          echo "=================================================="
+          echo "============================================================"
+          echo "CALVIN NATIVE ANDROID ARM64 BUILD"
+          echo "============================================================"
 
           echo
           echo "===== JAVA ====="
           java -version 2>&1
+
+          echo
+          echo "===== JAVAC ====="
+          javac -version 2>&1
 
           echo
           echo "===== NATIVE IMAGE ====="
@@ -129,32 +133,92 @@ jobs:
           echo
           echo "===== MAVEN EXIT STATUS: $STATUS ====="
 
+          # --------------------------------------------------------
+          # Extract the important Native Image errors.
+          # This is only for diagnosis; it does not modify the build.
+          # --------------------------------------------------------
+
+          {
+            echo "============================================================"
+            echo "CALVIN NATIVE IMAGE DIAGNOSTIC EXTRACT"
+            echo "============================================================"
+            echo
+
+            echo "===== ERROR / EXCEPTION LINES ====="
+
+            grep -nEi \
+              'Error:|Fatal:|Caused by:|ClassCastException|Exception|UnsupportedFeatureException|UserError|ForeignFunctionsFeature|VectorAPI|VectorAPISupport|Android|Bionic|linker|linking' \
+              native-build.log \
+              | tail -n 200 || true
+
+            echo
+            echo "===== CONTEXT AROUND CLASSCASTEXCEPTION ====="
+
+            grep -n -B 40 -A 80 \
+              'ClassCastException' \
+              native-build.log \
+              | tail -n 200 || true
+
+            echo
+            echo "===== CONTEXT AROUND FOREIGNFUNCTIONSFEATURE ====="
+
+            grep -n -B 40 -A 80 \
+              'ForeignFunctionsFeature' \
+              native-build.log \
+              | tail -n 200 || true
+
+            echo
+            echo "===== CONTEXT AROUND UNSUPPORTEDFEATUREEXCEPTION ====="
+
+            grep -n -B 40 -A 80 \
+              'UnsupportedFeatureException' \
+              native-build.log \
+              | tail -n 200 || true
+
+            echo
+            echo "===== LAST 300 LINES ====="
+
+            tail -n 300 native-build.log
+
+          } > native-error-extract.txt
+
+          echo
+          echo "============================================================"
+          echo "DIAGNOSTIC EXTRACT"
+          echo "============================================================"
+
+          cat native-error-extract.txt
+
           exit "$STATUS"
 
       # ------------------------------------------------------------
-      # If Native Image fails, preserve the complete log
+      # Upload diagnostic logs if Native Image failed
       # ------------------------------------------------------------
-      - name: Upload Native Image error log
+      - name: Upload Native Image diagnostic logs
         if: steps.build-native.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: Calvin-native-build-log
-          path: native-build.log
+          path: |
+            native-build.log
+            native-error-extract.txt
           if-no-files-found: error
           compression-level: 0
 
       # ------------------------------------------------------------
-      # Stop workflow if Native Image failed
+      # Stop workflow if native build failed
       # ------------------------------------------------------------
       - name: Stop if native build failed
         if: steps.build-native.outcome == 'failure'
         run: |
           echo "Calvin Native Image build failed."
-          echo "The complete native-build.log has been uploaded as an artifact."
+          echo
+          echo "The complete native-build.log and extracted"
+          echo "native-error-extract.txt have been uploaded."
           exit 1
 
       # ------------------------------------------------------------
-      # Inspect target
+      # Show successful build output
       # ------------------------------------------------------------
       - name: Show native build output
         run: |
@@ -196,7 +260,7 @@ jobs:
           cp "$BINARY" Calvin-android-arm64
 
       # ------------------------------------------------------------
-      # Upload ONLY the executable
+      # Upload ONLY the single executable
       # ------------------------------------------------------------
       - name: Upload single Calvin ARM64 binary
         uses: actions/upload-artifact@v4
