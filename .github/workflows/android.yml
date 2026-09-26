@@ -1,125 +1,211 @@
-name: Build Calvin for Android ARM64 NEON
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
 
-on:
-  workflow_dispatch:
+    <modelVersion>4.0.0</modelVersion>
 
-jobs:
-  build-android:
-    runs-on: ubuntu-24.04
+    <groupId>com.kelseyde</groupId>
+    <artifactId>calvin-chess-engine</artifactId>
+    <version>6.2.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
 
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
+    <name>calvin-chess-engine</name>
+    <description>A chess engine written in Java.</description>
 
-      - name: Set up GraalVM Community JDK 25
-        uses: graalvm/setup-graalvm@v1
-        with:
-          distribution: graalvm-community
-          java-version: '25'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+    <properties>
+        <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <native.maven.plugin.version>1.1.14</native.maven.plugin.version>
+    </properties>
 
-      - name: Verify GraalVM
-        run: |
-          set -eux
+    <dependencies>
 
-          java -version
-          javac -version
-          native-image --version
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>5.11.0</version>
+            <scope>test</scope>
+        </dependency>
 
-      - name: Set up Android SDK
-        run: |
-          set -eux
+    </dependencies>
 
-          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+    <build>
 
-          echo "Using Android SDK: $SDK_ROOT"
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <includes>
+                    <include>**/*.nnue</include>
+                </includes>
+            </resource>
+        </resources>
 
-          test -x "$SDKMANAGER"
+        <plugins>
 
-          yes | "$SDKMANAGER" --licenses || true
+            <!-- Compile Calvin as Java 17 bytecode -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
 
-          "$SDKMANAGER" \
-            "platform-tools" \
-            "platforms;android-24" \
-            "ndk;27.2.12479018"
+                <configuration>
+                    <release>${java.version}</release>
 
-          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+                    <compilerArgs>
+                        <arg>--add-modules</arg>
+                        <arg>jdk.incubator.vector</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
 
-      - name: Configure Android NDK
-        run: |
-          set -eux
+            <!-- Normal Calvin JAR -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
 
-          NDK="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>
+                                com.kelseyde.calvin.Application
+                            </mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
 
-          test -d "$NDK"
+            <!-- Preserve NNUE files without filtering -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
 
-          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
+                <configuration>
+                    <nonFilteredFileExtensions>
+                        <nonFilteredFileExtension>nnue</nonFilteredFileExtension>
+                    </nonFilteredFileExtensions>
+                </configuration>
+            </plugin>
 
-          echo "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
+            <!-- JUnit tests using the Vector API -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.3.1</version>
 
-      - name: Verify Android toolchain
-        run: |
-          set -eux
+                <configuration>
+                    <argLine>
+                        --add-modules jdk.incubator.vector
+                    </argLine>
+                </configuration>
+            </plugin>
 
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+        </plugins>
+    </build>
 
-          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
-            --version
+    <!-- ============================================================ -->
+    <!-- GraalVM Native Image / Android ARM64                         -->
+    <!-- ============================================================ -->
 
-          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" \
-            --version
+    <profiles>
 
-      - name: Verify Calvin NNUE
-        run: |
-          set -eux
+        <profile>
+            <id>native</id>
 
-          echo "Looking for Calvin NNUE..."
+            <build>
 
-          find . -type f -name 'calvin1024_8b.nnue' -print
+                <plugins>
 
-          test -f src/main/resources/calvin1024_8b.nnue
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <version>${native.maven.plugin.version}</version>
 
-          ls -lh src/main/resources/calvin1024_8b.nnue
+                        <extensions>true</extensions>
 
-      - name: Build Calvin native Android ARM64
-        run: |
-          set -eux
+                        <configuration>
 
-          mvn -B \
-            -Pnative \
-            -DskipTests \
-            clean package
+                            <mainClass>
+                                com.kelseyde.calvin.Application
+                            </mainClass>
 
-      - name: Locate Calvin binary
-        run: |
-          set -eux
+                            <imageName>
+                                Calvin-android-arm64
+                            </imageName>
 
-          BINARY="target/Calvin-android-arm64"
+                            <buildArgs>
 
-          test -f "$BINARY"
+                                <!-- Do not produce a fallback JVM image -->
+                                <buildArg>--no-fallback</buildArg>
 
-          chmod +x "$BINARY"
+                                <!-- Android AArch64 target -->
+                                <buildArg>
+                                    --target=android-aarch64
+                                </buildArg>
 
-          echo "Calvin native binary:"
-          ls -lh "$BINARY"
+                                <!-- Android Bionic libc -->
+                                <buildArg>
+                                    --libc=bionic
+                                </buildArg>
 
-          echo
-          echo "Binary information:"
-          file "$BINARY"
+                                <!-- Existing Calvin HTTP support -->
+                                <buildArg>
+                                    --enable-url-protocols=http
+                                </buildArg>
 
-          echo
-          echo "ELF information:"
-          readelf -h "$BINARY" | head -30
+                                <!-- Initialize supported classes during build -->
+                                <buildArg>
+                                    --initialize-at-build-time
+                                </buildArg>
 
-          cp "$BINARY" Calvin-android-arm64
+                                <!-- Native Image optimization -->
+                                <buildArg>-O2</buildArg>
 
-      - name: Upload single Calvin ARM64 binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: Calvin-android-arm64
-          path: Calvin-android-arm64
-          if-no-files-found: error
-          compression-level: 0
+                                <!-- Better Native Image diagnostics -->
+                                <buildArg>
+                                    -H:+ReportExceptionStackTraces
+                                </buildArg>
+
+                                <!-- Explicit Graal Vector API support -->
+                                <buildArg>
+                                    -H:+VectorAPISupport
+                                </buildArg>
+
+                                <!-- Calvin uses Java Vector API -->
+                                <buildArg>
+                                    --add-modules=jdk.incubator.vector
+                                </buildArg>
+
+                            </buildArgs>
+
+                        </configuration>
+
+                        <executions>
+
+                            <execution>
+                                <id>build-native</id>
+
+                                <phase>package</phase>
+
+                                <goals>
+                                    <goal>compile-no-fork</goal>
+                                </goals>
+                            </execution>
+
+                        </executions>
+
+                    </plugin>
+
+                </plugins>
+
+            </build>
+
+        </profile>
+
+    </profiles>
+
+</project>
