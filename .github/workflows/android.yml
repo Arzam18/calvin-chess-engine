@@ -8,15 +8,24 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Java 25
-        uses: actions/setup-java@v4
+      - name: Set up GraalVM Community JDK 25
+        uses: graalvm/setup-graalvm@v1
         with:
-          distribution: temurin
+          distribution: graalvm-community
           java-version: '25'
-          cache: maven
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify GraalVM
+        run: |
+          set -eux
+
+          java -version
+          javac -version
+          native-image --version
 
       - name: Set up Android SDK
         run: |
@@ -24,140 +33,102 @@ jobs:
 
           SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
 
-          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 
-          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+          echo "Using SDK:"
+          echo "$SDK_ROOT"
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-24" \
             "ndk;27.2.12479018"
 
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
 
-      - name: Verify Android toolchain
-        run: |
-          set -eux
-
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-
-          adb version || true
-
-          test -d "$ANDROID_SDK_ROOT/ndk/27.2.12479018"
-
-          ls -la "$ANDROID_SDK_ROOT/ndk/27.2.12479018"
-
-      - name: Set Android NDK environment
+      - name: Configure Android NDK
         run: |
           set -eux
 
           NDK="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
+
+          test -d "$NDK"
 
           echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
 
           echo "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: Verify Calvin NNUE
+      - name: Verify Android toolchain
         run: |
           set -eux
 
-          echo "Searching for Calvin NNUE..."
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
 
-          find . -type f \
-            \( -name 'calvin1024_8b.nnue' -o -name '*.nnue' \) \
-            -print
+          ls -la "$ANDROID_NDK_HOME"
 
-          test -f calvin1024_8b.nnue || \
-            test -f src/main/resources/calvin1024_8b.nnue || \
-            test -f src/main/resources/networks/calvin1024_8b.nnue
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
+            --version
 
-      - name: Show Java version
+      - name: Verify NNUE
         run: |
-          java -version
-          javac -version
+          set -eux
 
-      - name: Show Maven version
-        run: |
-          mvn -version
+          echo "Looking for Calvin NNUE..."
+
+          find . -type f -name 'calvin1024_8b.nnue' -print
+
+          test -f src/main/resources/calvin1024_8b.nnue
+
+          ls -lh src/main/resources/calvin1024_8b.nnue
 
       - name: Build Calvin native Android ARM64
-        env:
-          GRAALVM_HOME: ${{ env.JAVA_HOME }}
         run: |
           set -eux
 
-          mvn -B -DskipTests package
+          mvn -B \
+            -Pnative \
+            -DskipTests \
+            clean package
 
-      - name: Locate native executable
+      - name: Show native build output
         run: |
           set -eux
 
-          echo "Searching for native Calvin executable..."
+          echo "Target directory:"
+          find target -maxdepth 3 -type f -print
 
-          find . -type f -perm -111 -print || true
+          echo
+          echo "Native executables:"
+          find target -type f -perm -111 -print || true
 
-          find target -maxdepth 3 -type f -print || true
-
-      - name: Verify executable
+      - name: Locate Calvin binary
         run: |
           set -eux
 
-          BINARY=""
+          BINARY="target/Calvin-android-arm64"
 
-          for candidate in \
-            target/calvin \
-            target/calvin-* \
-            target/*/calvin \
-            target/*/calvin-* \
-            target/native-image/calvin \
-            target/native-image/calvin-*; do
-
-            if [ -f "$candidate" ] && [ -x "$candidate" ]; then
-              BINARY="$candidate"
-              break
-            fi
-
-          done
-
-          if [ -z "$BINARY" ]; then
-            echo "ERROR: Native Calvin executable was not found."
+          if [ ! -f "$BINARY" ]; then
+            echo "ERROR: Expected native binary was not produced."
             echo
-            echo "Contents of target:"
-            find target -type f -print || true
+            echo "Target contents:"
+            find target -type f -print
             exit 1
           fi
 
-          echo "Native executable:"
-          echo "$BINARY"
-
-          file "$BINARY"
-
           chmod +x "$BINARY"
 
-          echo
-          echo "Binary size:"
+          echo "Binary:"
           ls -lh "$BINARY"
 
           echo
-          echo "Binary information:"
           file "$BINARY"
 
           cp "$BINARY" Calvin-android-arm64
 
-      - name: Test UCI executable
-        run: |
-          set -eux
-
-          chmod +x Calvin-android-arm64
-
-          echo "Running native executable test..."
-
-          printf 'uci\nisready\nquit\n' |
-            timeout 30 ./Calvin-android-arm64 || true
-
-      - name: Upload Calvin Android ARM64 binary
+      - name: Upload single Calvin ARM64 binary
         uses: actions/upload-artifact@v4
         with:
           name: Calvin-android-arm64
