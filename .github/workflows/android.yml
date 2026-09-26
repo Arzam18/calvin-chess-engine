@@ -1,0 +1,95 @@
+name: Build Calvin for Android ARM64 NEON
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'pom.xml'
+      - '.github/workflows/android.yml'
+
+jobs:
+  build-android-arm64:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM JDK 25
+        uses: graalvm/setup-graalvm@v1
+        with:
+          distribution: 'graalvm-community'
+          java-version: '25'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sdkmanager "platform-tools" "platforms;android-24" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Build Java classes and package NNUE
+        run: |
+          set -euxo pipefail
+          mvn -B -DskipTests package
+
+      - name: Verify NNUE is present
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -f src/main/resources/calvin1024_8b.nnue
+          test -f target/calvin-chess-engine-6.2.0-SNAPSHOT.jar
+          jar tf target/calvin-chess-engine-6.2.0-SNAPSHOT.jar | grep -F 'calvin1024_8b.nnue'
+
+      - name: Build native Android ARM64 executable
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          NDK_CLANG="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          test -x "$NDK_CLANG"
+
+          native-image \
+            --no-fallback \
+            --target=android-aarch64 \
+            --libc=bionic \
+            --add-modules=jdk.incubator.vector \
+            -H:+VectorAPISupport \
+            -H:IncludeResources='.*calvin1024_8b\\.nnue$' \
+            --native-compiler-path="$NDK_CLANG" \
+            -march=armv8-a \
+            -O2 \
+            -cp target/calvin-chess-engine-6.2.0-SNAPSHOT.jar \
+            -o Calvin-6.2.0-android-arm64 \
+            com.kelseyde.calvin.Application
+
+      - name: Verify ELF and UCI startup
+        shell: bash
+        run: |
+          set -euxo pipefail
+          file Calvin-6.2.0-android-arm64
+          readelf -h Calvin-6.2.0-android-arm64 | grep -E 'Class:|Machine:|Type:'
+          ls -lh Calvin-6.2.0-android-arm64
+
+      - name: Package single binary
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p artifact
+          cp Calvin-6.2.0-android-arm64 artifact/
+
+      - name: Upload Android ARM64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: Calvin-6.2.0-android-arm64
+          path: artifact/Calvin-6.2.0-android-arm64
+          if-no-files-found: error
+          retention-days: 14
