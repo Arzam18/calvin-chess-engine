@@ -1,211 +1,207 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+name: Build Calvin for Android ARM64 NEON
 
-    <modelVersion>4.0.0</modelVersion>
+on:
+  push:
+  workflow_dispatch:
 
-    <groupId>com.kelseyde</groupId>
-    <artifactId>calvin-chess-engine</artifactId>
-    <version>6.2.0-SNAPSHOT</version>
-    <packaging>jar</packaging>
+jobs:
+  build-android:
+    runs-on: ubuntu-24.04
 
-    <name>calvin-chess-engine</name>
-    <description>A chess engine written in Java.</description>
+    steps:
 
-    <properties>
-        <java.version>17</java.version>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <native.maven.plugin.version>1.1.14</native.maven.plugin.version>
-    </properties>
+      # ------------------------------------------------------------
+      # Checkout
+      # ------------------------------------------------------------
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-    <dependencies>
+      # ------------------------------------------------------------
+      # GraalVM
+      # ------------------------------------------------------------
+      - name: Set up GraalVM Community JDK 25
+        uses: graalvm/setup-graalvm@v1
+        with:
+          distribution: graalvm-community
+          java-version: '25'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-engine</artifactId>
-            <version>5.11.0</version>
-            <scope>test</scope>
-        </dependency>
+      - name: Verify GraalVM
+        run: |
+          set -eux
 
-    </dependencies>
+          java -version
+          javac -version
+          native-image --version
 
-    <build>
+      # ------------------------------------------------------------
+      # Android SDK / NDK
+      # ------------------------------------------------------------
+      - name: Set up Android SDK
+        run: |
+          set -eux
 
-        <resources>
-            <resource>
-                <directory>src/main/resources</directory>
-                <includes>
-                    <include>**/*.nnue</include>
-                </includes>
-            </resource>
-        </resources>
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 
-        <plugins>
+          echo "Using SDK: $SDK_ROOT"
 
-            <!-- Compile Calvin as Java 17 bytecode -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
+          yes | "$SDKMANAGER" --licenses || true
 
-                <configuration>
-                    <release>${java.version}</release>
+          "$SDKMANAGER" \
+            "platform-tools" \
+            "platforms;android-24" \
+            "ndk;27.2.12479018"
 
-                    <compilerArgs>
-                        <arg>--add-modules</arg>
-                        <arg>jdk.incubator.vector</arg>
-                    </compilerArgs>
-                </configuration>
-            </plugin>
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
 
-            <!-- Normal Calvin JAR -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.4.2</version>
+      # ------------------------------------------------------------
+      # Android NDK
+      # ------------------------------------------------------------
+      - name: Configure Android NDK
+        run: |
+          set -eux
 
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <mainClass>
-                                com.kelseyde.calvin.Application
-                            </mainClass>
-                        </manifest>
-                    </archive>
-                </configuration>
-            </plugin>
+          NDK="$ANDROID_SDK_ROOT/ndk/27.2.12479018"
 
-            <!-- Preserve NNUE files without filtering -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <version>3.3.1</version>
+          test -d "$NDK"
 
-                <configuration>
-                    <nonFilteredFileExtensions>
-                        <nonFilteredFileExtension>nnue</nonFilteredFileExtension>
-                    </nonFilteredFileExtensions>
-                </configuration>
-            </plugin>
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK" >> "$GITHUB_ENV"
 
-            <!-- JUnit tests using the Vector API -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.3.1</version>
+          echo "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-                <configuration>
-                    <argLine>
-                        --add-modules jdk.incubator.vector
-                    </argLine>
-                </configuration>
-            </plugin>
+      - name: Verify Android toolchain
+        run: |
+          set -eux
 
-        </plugins>
-    </build>
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
 
-    <!-- ============================================================ -->
-    <!-- GraalVM Native Image / Android ARM64                         -->
-    <!-- ============================================================ -->
+          ls -la "$ANDROID_NDK_HOME"
 
-    <profiles>
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
+            --version
 
-        <profile>
-            <id>native</id>
+      # ------------------------------------------------------------
+      # Verify Calvin NNUE
+      # ------------------------------------------------------------
+      - name: Verify NNUE
+        run: |
+          set -eux
 
-            <build>
+          echo "Looking for Calvin NNUE..."
 
-                <plugins>
+          find . -type f -name 'calvin1024_8b.nnue' -print
 
-                    <plugin>
-                        <groupId>org.graalvm.buildtools</groupId>
-                        <artifactId>native-maven-plugin</artifactId>
-                        <version>${native.maven.plugin.version}</version>
+          test -f src/main/resources/calvin1024_8b.nnue
 
-                        <extensions>true</extensions>
+          ls -lh src/main/resources/calvin1024_8b.nnue
 
-                        <configuration>
+      # ------------------------------------------------------------
+      # Build
+      # ------------------------------------------------------------
+      - name: Build Calvin native Android ARM64
+        id: build-native
+        continue-on-error: true
+        run: |
+          set +e
 
-                            <mainClass>
-                                com.kelseyde.calvin.Application
-                            </mainClass>
+          echo "=================================================="
+          echo " CALVIN NATIVE ANDROID ARM64 BUILD"
+          echo "=================================================="
 
-                            <imageName>
-                                Calvin-android-arm64
-                            </imageName>
+          echo
+          echo "===== JAVA ====="
+          java -version 2>&1
 
-                            <buildArgs>
+          echo
+          echo "===== NATIVE IMAGE ====="
+          native-image --version 2>&1
 
-                                <!-- Do not produce a fallback JVM image -->
-                                <buildArg>--no-fallback</buildArg>
+          echo
+          echo "===== MAVEN BUILD ====="
 
-                                <!-- Android AArch64 target -->
-                                <buildArg>
-                                    --target=android-aarch64
-                                </buildArg>
+          mvn -B -Pnative -DskipTests clean package -e 2>&1 | tee native-build.log
 
-                                <!-- Android Bionic libc -->
-                                <buildArg>
-                                    --libc=bionic
-                                </buildArg>
+          STATUS=${PIPESTATUS[0]}
 
-                                <!-- Existing Calvin HTTP support -->
-                                <buildArg>
-                                    --enable-url-protocols=http
-                                </buildArg>
+          echo
+          echo "===== MAVEN EXIT STATUS: $STATUS ====="
 
-                                <!-- Initialize supported classes during build -->
-                                <buildArg>
-                                    --initialize-at-build-time
-                                </buildArg>
+          exit "$STATUS"
 
-                                <!-- Native Image optimization -->
-                                <buildArg>-O2</buildArg>
+      # ------------------------------------------------------------
+      # If Native Image fails, preserve the complete log
+      # ------------------------------------------------------------
+      - name: Upload Native Image error log
+        if: steps.build-native.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Calvin-native-build-log
+          path: native-build.log
+          if-no-files-found: error
+          compression-level: 0
 
-                                <!-- Better Native Image diagnostics -->
-                                <buildArg>
-                                    -H:+ReportExceptionStackTraces
-                                </buildArg>
+      # ------------------------------------------------------------
+      # Stop workflow if Native Image failed
+      # ------------------------------------------------------------
+      - name: Stop if native build failed
+        if: steps.build-native.outcome == 'failure'
+        run: |
+          echo "Calvin Native Image build failed."
+          echo "The complete native-build.log has been uploaded as an artifact."
+          exit 1
 
-                                <!-- Explicit Graal Vector API support -->
-                                <buildArg>
-                                    -H:+VectorAPISupport
-                                </buildArg>
+      # ------------------------------------------------------------
+      # Inspect target
+      # ------------------------------------------------------------
+      - name: Show native build output
+        run: |
+          set -eux
 
-                                <!-- Calvin uses Java Vector API -->
-                                <buildArg>
-                                    --add-modules=jdk.incubator.vector
-                                </buildArg>
+          echo "Target directory:"
+          find target -maxdepth 3 -type f -print
 
-                            </buildArgs>
+          echo
+          echo "Native executables:"
+          find target -type f -perm -111 -print || true
 
-                        </configuration>
+      # ------------------------------------------------------------
+      # Locate final binary
+      # ------------------------------------------------------------
+      - name: Locate Calvin binary
+        run: |
+          set -eux
 
-                        <executions>
+          BINARY="target/Calvin-android-arm64"
 
-                            <execution>
-                                <id>build-native</id>
+          if [ ! -f "$BINARY" ]; then
+            echo "ERROR: Expected native binary was not produced."
+            echo
+            echo "Target contents:"
+            find target -type f -print
+            exit 1
+          fi
 
-                                <phase>package</phase>
+          chmod +x "$BINARY"
 
-                                <goals>
-                                    <goal>compile-no-fork</goal>
-                                </goals>
-                            </execution>
+          echo "Binary:"
+          ls -lh "$BINARY"
 
-                        </executions>
+          echo
+          echo "Binary information:"
+          file "$BINARY"
 
-                    </plugin>
+          cp "$BINARY" Calvin-android-arm64
 
-                </plugins>
-
-            </build>
-
-        </profile>
-
-    </profiles>
-
-</project>
+      # ------------------------------------------------------------
+      # Upload ONLY the executable
+      # ------------------------------------------------------------
+      - name: Upload single Calvin ARM64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: Calvin-android-arm64
+          path: Calvin-android-arm64
+          if-no-files-found: error
+          compression-level: 0
