@@ -8,7 +8,6 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-
       - name: Checkout source
         uses: actions/checkout@v4
 
@@ -32,11 +31,12 @@ jobs:
           set -eux
 
           SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-
           SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 
-          echo "Using SDK:"
-          echo "$SDK_ROOT"
+          echo "Using Android SDK: $SDK_ROOT"
+          echo "Using sdkmanager: $SDKMANAGER"
+
+          test -x "$SDKMANAGER"
 
           yes | "$SDKMANAGER" --licenses || true
 
@@ -72,7 +72,10 @@ jobs:
           "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" \
             --version
 
-      - name: Verify NNUE
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang++" \
+            --version
+
+      - name: Verify Calvin NNUE
         run: |
           set -eux
 
@@ -85,50 +88,119 @@ jobs:
           ls -lh src/main/resources/calvin1024_8b.nnue
 
       - name: Build Calvin native Android ARM64
+        id: native_build
+        continue-on-error: true
         run: |
           set -eux
 
           mvn -B \
             -Pnative \
             -DskipTests \
-            clean package
+            clean package \
+            -e
 
-      - name: Show native build output
+      - name: Extract Native Image diagnostic
+        if: always()
         run: |
-          set -eux
-
-          echo "Target directory:"
-          find target -maxdepth 3 -type f -print
+          set +e
 
           echo
-          echo "Native executables:"
-          find target -type f -perm -111 -print || true
+          echo "========================================"
+          echo "NATIVE IMAGE DIAGNOSTIC FILES"
+          echo "========================================"
 
-      - name: Locate Calvin binary
+          find target -type f -name 'svm_err_*.md' -print
+
+          FOUND=0
+
+          for FILE in target/svm_err_*.md; do
+            if [ -f "$FILE" ]; then
+              FOUND=1
+
+              echo
+              echo "========================================"
+              echo "FILE: $FILE"
+              echo "========================================"
+
+              echo
+              echo "========================================"
+              echo "ERROR / EXCEPTION LINES"
+              echo "========================================"
+
+              grep -n -E \
+                'Error:|Fatal:|Caused by:|ClassCastException|UnsupportedFeatureException|UserError|ForeignFunctionsFeature|Exception|Stack trace' \
+                "$FILE" | head -250 || true
+
+              echo
+              echo "========================================"
+              echo "LAST 150 LINES"
+              echo "========================================"
+
+              tail -150 "$FILE"
+            fi
+          done
+
+          if [ "$FOUND" -eq 0 ]; then
+            echo
+            echo "No svm_err diagnostic file was found."
+            echo
+            echo "Searching entire target directory:"
+            find target -type f -print 2>/dev/null || true
+          fi
+
+      - name: Show native build output
+        if: always()
+        run: |
+          set +e
+
+          echo "========================================"
+          echo "TARGET DIRECTORY"
+          echo "========================================"
+
+          find target -maxdepth 3 -type f -print 2>/dev/null || true
+
+          echo
+          echo "========================================"
+          echo "NATIVE EXECUTABLES"
+          echo "========================================"
+
+          find target -type f -perm -111 -print 2>/dev/null || true
+
+      - name: Check native build result
         run: |
           set -eux
 
-          BINARY="target/Calvin-android-arm64"
-
-          if [ ! -f "$BINARY" ]; then
-            echo "ERROR: Expected native binary was not produced."
+          if [ ! -f "target/Calvin-android-arm64" ]; then
+            echo "ERROR: Calvin native binary was not produced."
             echo
-            echo "Target contents:"
-            find target -type f -print
+            echo "The diagnostic output above contains the Native Image error."
             exit 1
           fi
 
-          chmod +x "$BINARY"
+          chmod +x target/Calvin-android-arm64
 
-          echo "Binary:"
-          ls -lh "$BINARY"
+          echo "Native binary:"
+          ls -lh target/Calvin-android-arm64
 
           echo
-          file "$BINARY"
+          echo "Binary information:"
+          file target/Calvin-android-arm64
 
-          cp "$BINARY" Calvin-android-arm64
+      - name: Copy single Calvin binary
+        if: success()
+        run: |
+          set -eux
+
+          cp target/Calvin-android-arm64 Calvin-android-arm64
+
+          chmod +x Calvin-android-arm64
+
+          ls -lh Calvin-android-arm64
+
+          file Calvin-android-arm64
 
       - name: Upload single Calvin ARM64 binary
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Calvin-android-arm64
