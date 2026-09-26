@@ -76,6 +76,8 @@ jobs:
         run: |
           set -eux
 
+          echo "Looking for Calvin NNUE..."
+
           find . -type f -name 'calvin1024_8b.nnue' -print
 
           test -f src/main/resources/calvin1024_8b.nnue
@@ -83,148 +85,38 @@ jobs:
           ls -lh src/main/resources/calvin1024_8b.nnue
 
       - name: Build Calvin native Android ARM64
-        id: native_build
-        continue-on-error: true
         run: |
-          set +e
-
-          echo "========================================"
-          echo "STARTING NATIVE IMAGE BUILD"
-          echo "========================================"
+          set -eux
 
           mvn -B \
             -Pnative \
             -DskipTests \
-            clean package \
-            -e \
-            2>&1 | tee native-build.log
+            clean package
 
-          BUILD_STATUS=${PIPESTATUS[0]}
-
-          echo
-          echo "Maven exit code: $BUILD_STATUS"
-
-          exit "$BUILD_STATUS"
-
-      - name: Extract actual Native Image error
-        if: always()
-        run: |
-          set +e
-
-          echo
-          echo "============================================================"
-          echo "IMPORTANT NATIVE IMAGE ERROR"
-          echo "============================================================"
-
-          if [ -f native-build.log ]; then
-
-            echo
-            echo "----- Matching error lines -----"
-
-            grep -n -E \
-              'ClassCastException|ForeignFunctionsFeature|Caused by:|Fatal:|Error:|UnsupportedFeatureException|UserError|VMError|Exception' \
-              native-build.log | tail -100 || true
-
-            echo
-            echo "----- Context around ClassCastException -----"
-
-            grep -n -B 20 -A 60 \
-              'ClassCastException' \
-              native-build.log | tail -150 || true
-
-            echo
-            echo "----- Context around ForeignFunctionsFeature -----"
-
-            grep -n -B 20 -A 60 \
-              'ForeignFunctionsFeature' \
-              native-build.log | tail -150 || true
-
-            echo
-            echo "----- Last 200 lines of build -----"
-
-            tail -200 native-build.log
-
-          else
-            echo "ERROR: native-build.log was not created."
-          fi
-
-      - name: Inspect Native Image diagnostic files
-        if: always()
-        run: |
-          set +e
-
-          echo
-          echo "============================================================"
-          echo "SVM DIAGNOSTIC FILES"
-          echo "============================================================"
-
-          find . -type f -name 'svm_err_*.md' -print
-
-          for FILE in $(find . -type f -name 'svm_err_*.md'); do
-
-            echo
-            echo "============================================================"
-            echo "DIAGNOSTIC: $FILE"
-            echo "============================================================"
-
-            echo
-            echo "----- Important lines -----"
-
-            grep -n -E \
-              'ClassCastException|ForeignFunctionsFeature|Caused by:|Fatal:|Error:|UnsupportedFeatureException|UserError|VMError|Exception' \
-              "$FILE" | head -150 || true
-
-            echo
-            echo "----- Last 150 lines -----"
-
-            tail -150 "$FILE"
-
-          done
-
-      - name: Show target output
-        if: always()
-        run: |
-          set +e
-
-          echo
-          echo "============================================================"
-          echo "TARGET CONTENTS"
-          echo "============================================================"
-
-          find target -maxdepth 3 -type f -print 2>/dev/null || true
-
-      - name: Check native binary
+      - name: Locate Calvin binary
         run: |
           set -eux
 
-          if [ ! -f "target/Calvin-android-arm64" ]; then
-            echo "ERROR: Calvin native binary was not produced."
-            exit 1
-          fi
+          BINARY="target/Calvin-android-arm64"
 
-          chmod +x target/Calvin-android-arm64
+          test -f "$BINARY"
 
-          echo "Binary:"
-          ls -lh target/Calvin-android-arm64
+          chmod +x "$BINARY"
+
+          echo "Calvin native binary:"
+          ls -lh "$BINARY"
 
           echo
-          file target/Calvin-android-arm64
+          echo "Binary information:"
+          file "$BINARY"
 
-      - name: Prepare single binary artifact
-        if: success()
-        run: |
-          set -eux
+          echo
+          echo "ELF information:"
+          readelf -h "$BINARY" | head -30
 
-          cp target/Calvin-android-arm64 Calvin-android-arm64
-
-          chmod +x Calvin-android-arm64
-
-          ls -lh Calvin-android-arm64
-
-          file Calvin-android-arm64
+          cp "$BINARY" Calvin-android-arm64
 
       - name: Upload single Calvin ARM64 binary
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Calvin-android-arm64
